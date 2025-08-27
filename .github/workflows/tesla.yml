@@ -1,0 +1,110 @@
+name: Tesla Logger & Report
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # ogni 30 minuti (UTC)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/Rome
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Compute date key (Europe/Rome)
+        run: echo "DATE=$(TZ=Europe/Rome date +%F)" >> "$GITHUB_ENV"
+
+      - name: Restore state cache (tokens, contatori, log)
+        uses: actions/cache@v4
+        with:
+          path: .runner_state
+          key: tesla-state-${{ env.DATE }}
+          restore-keys: |
+            tesla-state-
+
+      - name: Ensure state dir
+        run: mkdir -p .runner_state
+
+      - name: Create .env from secrets + config
+        run: |
+          cat > .env <<'EOF'
+          TESLA_CLIENT_ID=${{ secrets.TESLA_CLIENT_ID }}
+          TESLA_CLIENT_SECRET=${{ secrets.TESLA_CLIENT_SECRET }}
+          TESLA_REGION=eu
+          TESLA_REDIRECT_URI=${{ secrets.TESLA_REDIRECT_URI }}
+          TESLA_VEHICLE_TAG=${{ secrets.TESLA_VEHICLE_TAG }}
+
+          EXTRA_SCOPES=vehicle_cmds
+          WAKE_POLICY=onfail
+          QUIET_WINDOW=00:00-07:30
+          MAX_WAKE_PER_DAY=16
+
+          LOG_FILE=.runner_state/tesla_soc.jsonl
+          DAILY_WAKE_FILE=.runner_state/wake_counter.json
+          TOKENS_PATH=.runner_state/tokens.json
+          STATE_PATH=.runner_state/state.json
+
+          AUTO_PARTNER_REGISTER=true
+          TESLA_PARTNER_DOMAIN=${{ secrets.TESLA_PARTNER_DOMAIN }}
+          TESLA_PARTNER_CLIENT_ID=${{ secrets.TESLA_PARTNER_CLIENT_ID }}
+          TESLA_PARTNER_CLIENT_SECRET=${{ secrets.TESLA_PARTNER_CLIENT_SECRET }}
+          EOF
+
+      - name: Seed refresh token (solo al primo run)
+        run: |
+          if [ ! -f .runner_state/tokens.json ]; then
+            if [ -z "${{ secrets.TESLA_REFRESH_TOKEN }}" ]; then
+              echo "TESLA_REFRESH_TOKEN secret mancante"; exit 1
+            fi
+            echo '{ "refresh_token": "'"${{ secrets.TESLA_REFRESH_TOKEN }}"'", "created_at": '"$(date +%s)"' }' > .runner_state/tokens.json
+          else
+            echo "tokens.json ripristinato dalla cache."
+          fi
+
+      - name: Run logger
+        run: npm run log
+
+      - name: Run analyzer (build site)
+        run: |
+          npm run report
+          mkdir -p dist
+          mv index.html dist/
+          cp .runner_state/tesla_soc.jsonl dist/
+          cp daily_summary.csv dist/
+
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tesla-report
+          path: dist
+
+      # --- Opzionale: pubblica su GitHub Pages ---
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/deploy-pages@v4
