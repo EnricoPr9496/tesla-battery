@@ -6,7 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "log": "node index.mjs",
-    "report": "node analyze.mjs .runner_state/tesla_soc.jsonl"
+    "report": "node analyze.mjs .runner_state/tesla_soc.jsonl",
+    "prune": "node tools/prune_log.mjs .runner_state/tesla_soc.jsonl 30"
   },
   "repository": {
     "type": "git",
