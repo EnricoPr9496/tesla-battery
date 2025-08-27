@@ -29,10 +29,9 @@ async function loadPoints(file){
 
 /* --- Costruisci intervalli e aggrega per giorno --- */
 function analyze(points){
-  const intervalsUsed = [];      // intervalli considerati (non in carica)
-  const intervalsExcluded = [];  // esclusi perché in carica o invalidi
+  const intervalsUsed = [];
+  const intervalsExcluded = [];
 
-  // per ogni coppia consecutiva
   for (let i=1;i<points.length;i++){
     const A = points[i-1], B = points[i];
     const t1 = +new Date(A.ts), t2 = +new Date(B.ts);
@@ -40,17 +39,15 @@ function analyze(points){
       intervalsExcluded.push({ prev_ts:A.ts, curr_ts:B.ts, reason:"timestamp non valido/duplicato" });
       continue;
     }
-
-    // Escludi intervalli in carica (A o B segnano carica)
     if (A.is_charging || B.is_charging){
       const hours = (t2 - t1)/3600000;
       const drop  = Math.max((A.soc_percent ?? 0) - (B.soc_percent ?? 0), 0);
       intervalsExcluded.push({
-        prev_ts:A.ts, curr_ts:B.ts, hours:+hours.toFixed(3), drop_pct:+drop.toFixed(3), reason:"in carica"
+        prev_ts:A.ts, curr_ts:B.ts, hours:+hours.toFixed(3),
+        drop_pct:+drop.toFixed(3), reason:"in carica"
       });
       continue;
     }
-
     const hours = (t2 - t1)/3600000;
     const drop  = Math.max((A.soc_percent ?? 0) - (B.soc_percent ?? 0), 0);
     const mid   = new Date((t1+t2)/2);
@@ -61,9 +58,8 @@ function analyze(points){
     });
   }
 
-  // Aggregazione per giorno: somma dei drop (punti %) + info utili
-  const byDay = {}; // day -> {drop, first_ts, last_ts, first_soc, last_soc, min_soc, max_soc, points:[]}
-  // Per min/max/first/last, usiamo i punti "grezzi" del giorno
+  // Aggregazione per giorno
+  const byDay = {};
   const pointsByDay = {};
   for (const p of points){
     const d = ymd(toLocalDate(p.ts));
@@ -91,10 +87,8 @@ function analyze(points){
     byDay[itv.day].intervals.push(itv);
   }
 
-  // Ordine cronologico
+  // Ordine cronologico + serie
   const days = Object.keys(byDay).sort();
-
-  // Serie per i grafici
   const dailyDates = [];
   const dailyDrop  = [];
   const dailyFirst = [];
@@ -111,14 +105,12 @@ function analyze(points){
     dailyMax.push(s.max_soc ?? null);
   }
 
-  // Serie temporale SoC grezza
   const seriesTs  = points.map(p=>p.ts);
   const seriesSoc = points.map(p=>p.soc_percent);
 
   return {
     days, dailyDates, dailyDrop, dailyFirst, dailyLast, dailyMin, dailyMax,
-    seriesTs, seriesSoc,
-    intervalsUsed, intervalsExcluded
+    seriesTs, seriesSoc, intervalsUsed, intervalsExcluded
   };
 }
 
@@ -142,6 +134,10 @@ async function writeCSV(summary){
 async function writeHTML(summary){
   const { dailyDates, dailyDrop, dailyFirst, dailyLast, dailyMin, dailyMax,
           seriesTs, seriesSoc, intervalsUsed, intervalsExcluded } = summary;
+
+  // Timestamp ultimo dato e momento generazione pagina
+  const lastTsISO = seriesTs[seriesTs.length - 1];
+  const genISO = new Date().toISOString();
 
   const html = `<!doctype html>
 <html lang="it">
@@ -168,6 +164,10 @@ async function writeHTML(summary){
 </head>
 <body>
   <h1>Consumo batteria: vista giornaliera</h1>
+  <div class="muted" id="timestamps">
+    Ultimo aggiornamento dati: <b id="lastData">—</b> &middot;
+    Pagina generata: <b id="genTime">—</b>
+  </div>
   <div class="muted">Mostro quanto è sceso il SoC ogni giorno (punti %). Intervalli in carica esclusi dall'analisi.</div>
 
   <div class="toolbar">
@@ -213,6 +213,18 @@ const seriesTs   = ${JSON.stringify(seriesTs)};
 const seriesSoc  = ${JSON.stringify(seriesSoc)};
 const intervals  = ${JSON.stringify(intervalsUsed)};
 const excluded   = ${JSON.stringify(intervalsExcluded)};
+const lastTsISO  = ${JSON.stringify(seriesTs[seriesTs.length - 1])};
+const genISO     = ${JSON.stringify(new Date().toISOString())};
+
+// Mostra timestamp in locale browser
+(function(){
+  function fmt(iso){
+    try { return new Date(iso).toLocaleString(undefined, { hour12:false }); }
+    catch { return iso; }
+  }
+  document.getElementById('lastData').textContent = fmt(lastTsISO);
+  document.getElementById('genTime').textContent  = fmt(genISO);
+})();
 
 // Stato UI
 let currentRange = "all"; // 7|30|90|all
@@ -231,7 +243,7 @@ function sliceRange(labels, data, range){
   return {labels: labels.slice(start), data: data.slice(start)};
 }
 
-// Render chart in base alla vista
+// Render chart
 function renderChart(){
   if (chart) chart.destroy();
   if (currentView === 'daily'){
@@ -242,7 +254,7 @@ function renderChart(){
       data: { labels: sliced.labels, datasets: [{ label: 'ΔSoC (punti)', data: sliced.data }] },
       options: {
         responsive: true,
-        scales: { y: { beginAtZero: true, title:{display:false, text:''} } },
+        scales: { y: { beginAtZero: true } },
         plugins: { legend:{display:false}, tooltip:{ callbacks:{ label:(ctx)=> 'Δ ' + ctx.parsed.y + ' punti' } } },
         onClick: (_, elements)=>{
           if (!elements.length) return;
@@ -330,6 +342,7 @@ renderChart();
   await fs.writeFile("index.html", html, "utf-8");
 }
 
+/* --- main --- */
 async function main(){
   const pts = await loadPoints(INPUT);
   const summary = analyze(pts);
@@ -339,5 +352,4 @@ async function main(){
   console.log(" - index.html (grafici interattivi)");
   console.log(" - daily_summary.csv");
 }
-
 main().catch(e=>{ console.error(e.message || e); process.exit(1); });
