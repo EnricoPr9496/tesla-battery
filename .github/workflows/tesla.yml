@@ -17,6 +17,9 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     env:
       TZ: Europe/Rome
     steps:
@@ -140,13 +143,11 @@ jobs:
           name: tesla-report
           path: dist
 
-      # --- DISABILITATO finché la repo è privata ---
       - name: Upload Pages artifact
-        if: ${{ false }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
       - name: Deploy to GitHub Pages
-        if: ${{ false }}
+        id: deployment
         uses: actions/deploy-pages@v4
