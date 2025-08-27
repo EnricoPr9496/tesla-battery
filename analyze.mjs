@@ -1,7 +1,10 @@
 import fs from "fs/promises";
 
 // Uso: node analyze.mjs [tesla_soc.jsonl]
+// ENV (opzionale): DAYS_REPORT (default 14)
 const INPUT = process.argv[2] || "./tesla_soc.jsonl";
+const DAYS_REPORT = parseInt(process.env.DAYS_REPORT || "14", 10);
+const MS_DAY = 24 * 60 * 60 * 1000;
 
 /* --- Helpers tempo (local time) --- */
 function pad(n){ return String(n).padStart(2,"0"); }
@@ -168,7 +171,8 @@ async function writeHTML(summary){
     Ultimo aggiornamento dati: <b id="lastData">—</b> &middot;
     Pagina generata: <b id="genTime">—</b>
   </div>
-  <div class="muted">Mostro quanto è sceso il SoC ogni giorno (punti %). Intervalli in carica esclusi dall'analisi.</div>
+  <div class="muted">Periodo analizzato: ultimi ${DAYS_REPORT} giorni (se insufficienti dati recenti, uso l’intero storico).</div>
+  <div class="muted" style="margin-top:6px">Mostro quanto è sceso il SoC ogni giorno (punti %). Intervalli in carica esclusi dall'analisi.</div>
 
   <div class="toolbar">
     <span class="muted">Intervallo:</span>
@@ -255,8 +259,8 @@ function renderChart(){
       options: {
         responsive: true,
         scales: { y: { beginAtZero: true } },
-        plugins: { legend:{display:false}, tooltip:{ callbacks:{ label:(ctx)=> 'Δ ' + ctx.parsed.y + ' punti' } } },
-        onClick: (_, elements)=>{
+        plugins: { legend:{display:false}, tooltip:{ callbacks:{ label:function(ctx){ return 'Δ ' + ctx.parsed.y + ' punti'; } } } },
+        onClick: function(_, elements){
           if (!elements.length) return;
           const idx = elements[0].index;
           const day = sliced.labels[idx];
@@ -298,7 +302,7 @@ function showDayDetail(day){
   document.getElementById('daySummary').innerHTML =
     '<tr><td>'+day+'</td><td>'+first+'</td><td>'+last+'</td><td>'+drop+'</td></tr>';
 
-  const rows = intervals.filter(r => r.day === day);
+  const rows = intervals.filter(function(r){ return r.day === day; });
   const tbody = document.getElementById('intervalsBody');
   if (!rows.length){
     tbody.innerHTML = '<tr><td colspan="4" class="muted">nessun intervallo utile (forse solo carica)</td></tr>';
@@ -307,7 +311,7 @@ function showDayDetail(day){
   tbody.innerHTML = '';
   for (const r of rows){
     const tr = document.createElement('tr');
-    ['prev_ts','curr_ts','hours','drop_pct'].forEach(k=>{
+    ['prev_ts','curr_ts','hours','drop_pct'].forEach(function(k){
       const td = document.createElement('td');
       td.textContent = r[k];
       tr.appendChild(td);
@@ -317,17 +321,17 @@ function showDayDetail(day){
 }
 
 // Bottoni toolbar
-document.querySelectorAll('button[data-range]').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    document.querySelectorAll('button[data-range]').forEach(b=>b.classList.remove('active'));
+document.querySelectorAll('button[data-range]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('button[data-range]').forEach(function(b){ b.classList.remove('active'); });
     btn.classList.add('active');
     currentRange = btn.getAttribute('data-range');
     renderChart();
   });
 });
-document.querySelectorAll('button[data-view]').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    document.querySelectorAll('button[data-view]').forEach(b=>b.classList.remove('active'));
+document.querySelectorAll('button[data-view]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('button[data-view]').forEach(function(b){ b.classList.remove('active'); });
     btn.classList.add('active');
     currentView = btn.getAttribute('data-view');
     renderChart();
@@ -344,7 +348,14 @@ renderChart();
 
 /* --- main --- */
 async function main(){
-  const pts = await loadPoints(INPUT);
+  // Carica tutti i punti
+  const allPts = await loadPoints(INPUT);
+
+  // Finestra ultimi DAYS_REPORT giorni con fallback all'intero storico
+  const cutoff = Date.now() - DAYS_REPORT * MS_DAY;
+  const recent = allPts.filter(p => +new Date(p.ts) >= cutoff);
+  const pts = recent.length >= 2 ? recent : allPts;
+
   const summary = analyze(pts);
   await writeCSV(summary);
   await writeHTML(summary);
