@@ -85,7 +85,48 @@ jobs:
       - name: Run logger
         run: npm run log
 
+      - name: Count samples in log
+        id: count
+        shell: bash
+        run: |
+          if [ -f .runner_state/tesla_soc.jsonl ]; then
+            count=$(grep -c '"soc_percent":' .runner_state/tesla_soc.jsonl || true)
+          else
+            count=0
+          fi
+          echo "Found samples: $count"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Build placeholder report (first run)
+        if: ${{ fromJson(steps.count.outputs.count) < 2 }}
+        shell: bash
+        run: |
+          echo "Meno di 2 letture: costruisco un report segnaposto."
+          mkdir -p dist
+          cat > dist/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>Tesla — Report in preparazione</title>
+          <style>
+            body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:32px;color:#111}
+            .card{border:1px solid #e6e6e6;border-radius:12px;padding:18px;max-width:720px}
+            h1{margin:0 0 8px}
+            .muted{color:#666}
+            code{background:#f6f6f6;padding:2px 6px;border-radius:6px}
+          </style>
+          <div class="card">
+            <h1>Report in preparazione</h1>
+            <p class="muted">Servono almeno <b>2</b> letture per disegnare i grafici.</p>
+            <p>Il logger è attivo. Al prossimo run troverai il report completo qui.</p>
+          </div>
+          HTML
+          cp .runner_state/tesla_soc.jsonl dist/ || true
+          echo "day;delta_soc_pts;soc_first;soc_last;soc_min;soc_max" > dist/daily_summary.csv
+
       - name: Run analyzer (build site)
+        if: ${{ fromJson(steps.count.outputs.count) >= 2 }}
+        shell: bash
         run: |
           npm run report
           mkdir -p dist
