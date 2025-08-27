@@ -2,7 +2,7 @@ name: Tesla Logger & Report
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # ogni 30 minuti (UTC)
+    - cron: "*/25 * * * *"   # trigger ogni 25', il gate sotto fa rispettare i 50' reali
   workflow_dispatch:
 
 permissions:
@@ -49,7 +49,30 @@ jobs:
       - name: Ensure state dir
         run: mkdir -p .runner_state
 
+      # ===== Gate: esegui solo se sono passati >= 50 minuti dall'ultimo run =====
+      - name: Enforce 50-minute spacing
+        id: gate
+        shell: bash
+        run: |
+          file=.runner_state/last_run.txt
+          now=$(date +%s)
+          if [ -f "$file" ]; then
+            last=$(cat "$file" || echo 0)
+          else
+            last=0
+          fi
+          diff=$(( now - last ))
+          # 3000s = 50 minuti
+          if [ "$diff" -lt 3000 ]; then
+            echo "Troppo presto: ultimo run ${diff}s fa (<3000s). Skip."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+          echo "$now" > "$file"
+
       - name: Create .env from secrets + config
+        if: ${{ steps.gate.outputs.run == 'true' }}
         run: |
           cat > .env <<'EOF'
           TESLA_CLIENT_ID=${{ secrets.TESLA_CLIENT_ID }}
@@ -75,6 +98,7 @@ jobs:
           EOF
 
       - name: Seed refresh token (solo al primo run)
+        if: ${{ steps.gate.outputs.run == 'true' }}
         run: |
           if [ ! -f .runner_state/tokens.json ]; then
             if [ -z "${{ secrets.TESLA_REFRESH_TOKEN }}" ]; then
@@ -86,9 +110,11 @@ jobs:
           fi
 
       - name: Run logger
+        if: ${{ steps.gate.outputs.run == 'true' }}
         run: npm run log
 
       - name: Count samples in log
+        if: ${{ steps.gate.outputs.run == 'true' }}
         id: count
         shell: bash
         run: |
@@ -101,7 +127,7 @@ jobs:
           echo "count=$count" >> "$GITHUB_OUTPUT"
 
       - name: Build placeholder report (first run)
-        if: ${{ fromJson(steps.count.outputs.count) < 2 }}
+        if: ${{ steps.gate.outputs.run == 'true' && fromJson(steps.count.outputs.count) < 2 }}
         shell: bash
         run: |
           echo "Meno di 2 letture: costruisco un report segnaposto."
@@ -128,7 +154,7 @@ jobs:
           echo "day;delta_soc_pts;soc_first;soc_last;soc_min;soc_max" > dist/daily_summary.csv
 
       - name: Run analyzer (build site)
-        if: ${{ fromJson(steps.count.outputs.count) >= 2 }}
+        if: ${{ steps.gate.outputs.run == 'true' && fromJson(steps.count.outputs.count) >= 2 }}
         shell: bash
         run: |
           npm run report
@@ -138,16 +164,19 @@ jobs:
           cp daily_summary.csv dist/
 
       - name: Upload report artifact
+        if: ${{ steps.gate.outputs.run == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: tesla-report
           path: dist
 
       - name: Upload Pages artifact
+        if: ${{ steps.gate.outputs.run == 'true' }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
       - name: Deploy to GitHub Pages
+        if: ${{ steps.gate.outputs.run == 'true' && github.event_name != 'pull_request' }}
         id: deployment
         uses: actions/deploy-pages@v4
