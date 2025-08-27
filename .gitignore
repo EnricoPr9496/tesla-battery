@@ -138,9 +138,16 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
-.env
+# Runner state & secrets (non versionare)
 tokens.json
 state.json
 wake_counter.json
 .runner_state/
+
+# Build artifacts
 dist/
+
+# Local analyzer artifacts (non versionare)
+index.html
+daily_summary.csv
+tesla_soc.jsonl
