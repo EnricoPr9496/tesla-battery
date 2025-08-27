@@ -99,12 +99,13 @@ jobs:
           name: tesla-report
           path: dist
 
-      # --- Opzionale: pubblica su GitHub Pages ---
+      # --- DISABILITATO finché la repo è privata ---
       - name: Upload Pages artifact
+        if: ${{ false }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
       - name: Deploy to GitHub Pages
-        if: github.event_name != 'pull_request'
+        if: ${{ false }}
         uses: actions/deploy-pages@v4
