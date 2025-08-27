@@ -52,6 +52,12 @@ jobs:
       - name: Ensure state dir
         run: mkdir -p .runner_state
 
+      # ---------- Prune log: conserva solo ultimi 30 giorni ----------
+      - name: Prune log to last 30 days
+        shell: bash
+        run: |
+          node tools/prune_log.mjs .runner_state/tesla_soc.jsonl 30 || true
+
       # ---------- Gate: esegui solo se sono passati >= 50 min ----------
       - name: Enforce 50-minute spacing
         id: gate
@@ -98,6 +104,9 @@ jobs:
           TESLA_PARTNER_DOMAIN=${{ secrets.TESLA_PARTNER_DOMAIN }}
           TESLA_PARTNER_CLIENT_ID=${{ secrets.TESLA_PARTNER_CLIENT_ID }}
           TESLA_PARTNER_CLIENT_SECRET=${{ secrets.TESLA_PARTNER_CLIENT_SECRET }}
+
+          # --- report window ---
+          DAYS_REPORT=14
           EOF
 
       - name: Seed refresh token (solo al primo run)
@@ -172,6 +181,7 @@ jobs:
         with:
           name: tesla-report
           path: dist
+          retention-days: 14
 
       - name: Upload Pages artifact
         if: ${{ steps.gate.outputs.run == 'true' }}
