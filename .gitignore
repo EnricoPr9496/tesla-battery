@@ -137,3 +137,10 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+.env
+tokens.json
+state.json
+wake_counter.json
+.runner_state/
+dist/

@@ -1,0 +1,28 @@
+{
+  "name": "tesla-battery",
+  "version": "1.0.0",
+  "description": "Logger &amp; report SoC Tesla (GitHub Actions)",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "log": "node index.mjs",
+    "report": "node analyze.mjs .runner_state/tesla_soc.jsonl"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EnricoPr9496/tesla-battery.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/EnricoPr9496/tesla-battery/issues"
+  },
+  "homepage": "https://github.com/EnricoPr9496/tesla-battery#readme",
+  "dependencies": {
+    "axios": "^1.11.0",
+    "dotenv": "^17.2.1",
+    "open": "^10.2.0"
+  },
+  "type": "module"
+}
