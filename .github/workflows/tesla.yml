@@ -2,7 +2,7 @@ name: Tesla Logger & Report
 
 on:
   schedule:
-    - cron: "*/25 * * * *"   # trigger ogni 25', il gate sotto fa rispettare i 50' reali
+    - cron: "*/25 * * * *"   # trigger ogni 25', il gate sotto fa rispettare i ~50' reali
   workflow_dispatch:
 
 permissions:
@@ -22,6 +22,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     env:
       TZ: Europe/Rome
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,8 +39,10 @@ jobs:
       - name: Compute date key (Europe/Rome)
         run: echo "DATE=$(TZ=Europe/Rome date +%F)" >> "$GITHUB_ENV"
 
+      # ---------- Cache: restore dalla chiave del giorno ----------
       - name: Restore state cache (tokens, contatori, log)
-        uses: actions/cache@v4
+        id: cache-restore
+        uses: actions/cache/restore@v4
         with:
           path: .runner_state
           key: tesla-state-${{ env.DATE }}
@@ -49,7 +52,7 @@ jobs:
       - name: Ensure state dir
         run: mkdir -p .runner_state
 
-      # ===== Gate: esegui solo se sono passati >= 50 minuti dall'ultimo run =====
+      # ---------- Gate: esegui solo se sono passati >= 50 min ----------
       - name: Enforce 50-minute spacing
         id: gate
         shell: bash
@@ -180,3 +183,11 @@ jobs:
         if: ${{ steps.gate.outputs.run == 'true' && github.event_name != 'pull_request' }}
         id: deployment
         uses: actions/deploy-pages@v4
+
+      # ---------- Cache: salva SEMPRE lo stato aggiornato con chiave unica ----------
+      - name: Save state cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .runner_state
+          key: tesla-state-${{ env.DATE }}-${{ github.run_id }}
