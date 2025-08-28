@@ -105,8 +105,11 @@ jobs:
           TESLA_PARTNER_CLIENT_ID=${{ secrets.TESLA_PARTNER_CLIENT_ID }}
           TESLA_PARTNER_CLIENT_SECRET=${{ secrets.TESLA_PARTNER_CLIENT_SECRET }}
 
-          # --- report window ---
+          # report window (giorni)
           DAYS_REPORT=14
+
+          # non fallire in quiet window se l'auto è asleep/offline
+          EXIT_ZERO_ON_QUIET=true
           EOF
 
       - name: Seed refresh token (solo al primo run)
@@ -123,6 +126,7 @@ jobs:
 
       - name: Run logger
         if: ${{ steps.gate.outputs.run == 'true' }}
+        continue-on-error: true        # cintura di sicurezza: non faila il job su errori temporanei
         run: npm run log
 
       - name: Count samples in log
