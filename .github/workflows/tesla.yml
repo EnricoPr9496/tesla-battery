@@ -22,7 +22,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     env:
       TZ: Europe/Rome
-      CACHE_PREFIX: tesla-state-v3   # Cambia in v4 se vuoi invalidare la cache in futuro
+      CACHE_PREFIX: tesla-state-v4   # bump del prefisso (ripartenza pulita)
 
     steps:
       - name: Checkout
@@ -40,7 +40,7 @@ jobs:
       - name: Compute date key (Europe/Rome)
         run: echo "DATE=$(TZ=Europe/Rome date +%F)" >> "$GITHUB_ENV"
 
-      # ---------- Cache: restore dalla chiave del giorno ----------
+      # ---------- Cache: restore (prova prefisso attuale e anche vecchi prefissi, se esistono) ----------
       - name: Restore state cache (tokens, contatori, log)
         id: cache-restore
         uses: actions/cache/restore@v4
@@ -49,9 +49,25 @@ jobs:
           key: ${{ env.CACHE_PREFIX }}-${{ env.DATE }}
           restore-keys: |
             ${{ env.CACHE_PREFIX }}-
+            tesla-state-v3-
+            tesla-state-v2-
+            tesla-state-v1-
+            tesla-state-
 
       - name: Ensure state dir
         run: mkdir -p .runner_state
+
+      # ---------- Bootstrap: se la cache è vuota, prova a caricare il log pubblicato su Pages ----------
+      - name: Bootstrap log from Pages if missing
+        shell: bash
+        run: |
+          if [ ! -f .runner_state/tesla_soc.jsonl ]; then
+            echo "Provo a recuperare il log dalla pagina pubblica…"
+            curl -fSLo .runner_state/tesla_soc.jsonl \
+              https://enricopr9496.github.io/tesla-battery/tesla_soc.jsonl || echo "Nessun log pubblico trovato."
+          else
+            echo "Log già presente in cache."
+          fi
 
       # ---------- Prune log: conserva solo ultimi 30 giorni ----------
       - name: Prune log to last 30 days
