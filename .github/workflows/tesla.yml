@@ -22,6 +22,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     env:
       TZ: Europe/Rome
+      CACHE_PREFIX: tesla-state-v3   # Cambia in v4 se vuoi invalidare la cache in futuro
 
     steps:
       - name: Checkout
@@ -45,9 +46,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .runner_state
-          key: tesla-state-${{ env.DATE }}
+          key: ${{ env.CACHE_PREFIX }}-${{ env.DATE }}
           restore-keys: |
-            tesla-state-
+            ${{ env.CACHE_PREFIX }}-
 
       - name: Ensure state dir
         run: mkdir -p .runner_state
@@ -112,21 +113,47 @@ jobs:
           EXIT_ZERO_ON_QUIET=true
           EOF
 
-      - name: Seed refresh token (solo al primo run)
+      # ---------- Seed: usa TESLA_REFRESH_TOKEN, altrimenti TESLA_AUTH_CODE (una tantum) ----------
+      - name: Seed tokens (refresh token o auth code una tantum)
         if: ${{ steps.gate.outputs.run == 'true' }}
+        shell: bash
         run: |
-          if [ ! -f .runner_state/tokens.json ]; then
-            if [ -z "${{ secrets.TESLA_REFRESH_TOKEN }}" ]; then
-              echo "TESLA_REFRESH_TOKEN secret mancante"; exit 1
-            fi
-            echo '{ "refresh_token": "'"${{ secrets.TESLA_REFRESH_TOKEN }}"'", "created_at": '"$(date +%s)"' }' > .runner_state/tokens.json
-          else
+          set -e
+          mkdir -p .runner_state
+          if [ -f .runner_state/tokens.json ]; then
             echo "tokens.json ripristinato dalla cache."
+            exit 0
           fi
+
+          if [ -n "${{ secrets.TESLA_REFRESH_TOKEN }}" ]; then
+            echo "Uso TESLA_REFRESH_TOKEN dal secret."
+            echo '{ "refresh_token": "'"${{ secrets.TESLA_REFRESH_TOKEN }}"'", "created_at": '"$(date +%s)"' }' > .runner_state/tokens.json
+            exit 0
+          fi
+
+          if [ -n "${{ secrets.TESLA_AUTH_CODE }}" ]; then
+            echo "Scambio TESLA_AUTH_CODE -> refresh_token ..."
+            refresh=$(
+              curl -sS -X POST "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token" \
+                -H "Content-Type: application/x-www-form-urlencoded" \
+                --data "grant_type=authorization_code&code=${{ secrets.TESLA_AUTH_CODE }}&client_id=${{ secrets.TESLA_CLIENT_ID }}&redirect_uri=${{ secrets.TESLA_REDIRECT_URI }}" \
+              | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{let j=JSON.parse(s);if(!j.refresh_token){console.error("No refresh_token");process.exit(2)};process.stdout.write(j.refresh_token)}catch(e){console.error(e);process.exit(2)}})'
+            )
+            if [ -z "$refresh" ]; then
+              echo "Scambio code fallito (forse scaduto o già usato)."
+              exit 1
+            fi
+            echo '{ "refresh_token": "'"$refresh"'" , "created_at": '"$(date +%s)"' }' > .runner_state/tokens.json
+            echo "Ok: tokens.json scritto con refresh_token derivato dal code."
+            exit 0
+          fi
+
+          echo "Né TESLA_REFRESH_TOKEN né TESLA_AUTH_CODE forniti. Imposta almeno uno dei due."
+          exit 1
 
       - name: Run logger
         if: ${{ steps.gate.outputs.run == 'true' }}
-        continue-on-error: true        # cintura di sicurezza: non faila il job su errori temporanei
+        continue-on-error: true        # non fallire il job su errori temporanei / quiet window
         run: npm run log
 
       - name: Count samples in log
@@ -204,4 +231,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .runner_state
-          key: tesla-state-${{ env.DATE }}-${{ github.run_id }}
+          key: ${{ env.CACHE_PREFIX }}-${{ env.DATE }}-${{ github.run_id }}
